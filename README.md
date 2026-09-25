@@ -5,7 +5,7 @@
 <h1 align="center">SimSling</h1>
 
 <p align="center">
-  Drop files into iOS simulators again.<br>
+  Sling files into iOS simulators.<br>
   A menu bar app, a floating toolbar docked beside each simulator, and a CLI for the Xcode 27 Device Hub.
 </p>
 
