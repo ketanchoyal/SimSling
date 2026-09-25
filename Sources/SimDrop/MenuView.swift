@@ -25,7 +25,7 @@ struct MenuView: View {
 
     private var header: some View {
         HStack {
-            Label("SimDrop", systemImage: "iphone.and.arrow.forward")
+            Label { Text("SimDrop") } icon: { Image(nsImage: MenuBarIcon.image) }
                 .font(.headline)
             Spacer()
             if store.busy { ProgressView().controlSize(.small) }

@@ -7,14 +7,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
     private lazy var sideToolbars = SideToolbarController(store: store)
-    private let idleSymbol = "iphone.and.arrow.forward"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         guard let button = statusItem.button else { return }
-        setIcon(idleSymbol)
+        statusItem.button?.image = MenuBarIcon.image
 
         // The overlay handles both clicks and drops so the menu bar icon itself is a drop target.
         let overlay = StatusDropView(frame: button.bounds)
@@ -46,7 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setIcon(ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
         Task {
             try? await Task.sleep(for: .seconds(1.5))
-            setIcon(idleSymbol)
+            statusItem.button?.image = MenuBarIcon.image
         }
     }
 
