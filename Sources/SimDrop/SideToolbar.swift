@@ -199,20 +199,20 @@ struct SideToolbarView: View {
 
     var body: some View {
         VStack(spacing: 2) {
-            tool("tray.and.arrow.down", "Send files to \(deviceLabel)… (or drop files on this toolbar)") {
+            tool("tray.and.arrow.down", "Send Files", "Send files to \(deviceLabel)… (or drop files on this toolbar)") {
                 store.chooseFiles(for: devices)
             }
             destinationMenu
             Divider().padding(.vertical, 3)
-            tool("doc.on.clipboard", "Paste Mac clipboard into \(deviceLabel)") {
+            tool("doc.on.clipboard", "Paste to Sim", "Paste Mac clipboard into \(deviceLabel)") {
                 store.pushMacClipboard(to: devices)
             }
-            tool("arrow.down.doc", "Copy \(deviceLabel) clipboard to Mac") {
+            tool("arrow.down.doc", "Copy from Sim", "Copy \(deviceLabel) clipboard to Mac") {
                 if let target = device ?? store.targets.first { store.pullClipboard(from: target) }
             }
-            tool("link", "Open URL or deep link") { showURLField.toggle() }
+            tool("link", "Open URL", "Open a URL or deep link on \(deviceLabel)") { showURLField.toggle() }
                 .popover(isPresented: $showURLField, arrowEdge: .trailing) { urlPopover }
-            tool("folder", "Show Files storage in Finder") { store.revealFilesFolder(on: device) }
+            tool("folder", "Show in Finder", "Show \(deviceLabel) Files storage in Finder") { store.revealFilesFolder(on: device) }
         }
         .padding(5)
         .background {
@@ -251,16 +251,32 @@ struct SideToolbarView: View {
                 }
             }
         } label: {
-            Image(systemName: symbol(for: store.mode))
-                .font(.system(size: 15))
-                .frame(width: 30, height: 30)
-                .contentShape(Rectangle())
+            ToolLabel(symbol: symbol(for: store.mode), title: destinationTitle)
         }
         .menuStyle(.button)
         .buttonStyle(ToolButtonStyle())
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("Destination: \(store.mode.rawValue)")
+        .help("Where dropped files go: \(destinationHelp). Click to change.")
+        .accessibilityLabel("Destination: \(destinationTitle)")
+    }
+
+    private var destinationTitle: String {
+        switch store.mode {
+        case .auto: "Auto Route"
+        case .files: "To Files"
+        case .media: "To Photos"
+        case .app: "To App"
+        }
+    }
+
+    private var destinationHelp: String {
+        switch store.mode {
+        case .auto: "photos/videos/contacts to their apps, .app installs, the rest to Files"
+        case .files: "Files › On My iPhone"
+        case .media: "Photos and Contacts"
+        case .app: "the \(store.apps.first { $0.bundleID == store.appBundleID }?.name ?? "selected") app's Documents folder"
+        }
     }
 
     private var urlPopover: some View {
@@ -280,15 +296,12 @@ struct SideToolbarView: View {
         showURLField = false
     }
 
-    private func tool(_ symbol: String, _ help: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 15))
-                .frame(width: 30, height: 30)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(ToolButtonStyle())
-        .help(help)
+    private func tool(_ symbol: String, _ title: String, _ help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) { ToolLabel(symbol: symbol, title: title) }
+            .buttonStyle(ToolButtonStyle())
+            .help(help)
+            .accessibilityLabel(title)
+            .accessibilityHint(help)
     }
 
     private func badgeView(ok: Bool) -> some View {
@@ -309,6 +322,28 @@ struct SideToolbarView: View {
         case .media: "photo.on.rectangle"
         case .app: "app.badge"
         }
+    }
+}
+
+/// Icon with a short caption underneath. Fixed size so the panel never needs resizing.
+private struct ToolLabel: View {
+    let symbol: String
+    let title: String
+
+    var body: some View {
+        VStack(spacing: 3) {
+            Image(systemName: symbol)
+                .font(.system(size: 15))
+                .frame(height: 18)
+            Text(title)
+                .font(.system(size: 9, weight: .medium))
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
+                .foregroundStyle(.secondary)
+        }
+        .frame(width: 58, height: 44)
+        .contentShape(Rectangle())
     }
 }
 
