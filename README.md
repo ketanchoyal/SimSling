@@ -52,7 +52,20 @@ booted simulator. The ⋯ menu turns the floating toolbar on or off.
 
 ## Install
 
-Requires Xcode 27 (or any Xcode with `simctl`) and macOS 15+.
+### Download
+
+Grab **SimDrop-x.y.z.zip** from the [latest release](https://github.com/ketanchoyal/SimDrop/releases/latest),
+unzip it and move **SimDrop.app** to Applications. It's a universal build (Apple Silicon and Intel)
+for macOS 15 or later, and needs Xcode installed for `xcrun simctl`.
+
+SimDrop is ad-hoc signed and not notarized, so macOS blocks the first launch. Either open it once
+and then click **Open Anyway** in **System Settings › Privacy & Security**, or run:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/SimDrop.app
+```
+
+### Build from source
 
 ```sh
 git clone https://github.com/ketanchoyal/SimDrop.git
@@ -61,6 +74,8 @@ cd SimDrop
 cp -R build/SimDrop.app /Applications/
 open /Applications/SimDrop.app
 ```
+
+To publish a release: bump `VERSION`, then run `./scripts/release.sh`.
 
 The floating toolbar reads simulator window titles to know which device each window is. If macOS
 hides them, allow SimDrop under **System Settings › Privacy & Security › Screen Recording**.
