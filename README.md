@@ -37,7 +37,14 @@ what it does. Everything on a toolbar acts on **that simulator only**.
 | Paste Mac Clipboard | Put the Mac clipboard onto the simulator |
 | Copy Sim Clipboard | Bring the simulator's clipboard to the Mac |
 | Open URL | Open a URL or deep link |
+| Screenshot | Capture the screen; a thumbnail floats in the simulator's corner (see below) |
 | Show in Finder | Reveal the simulator's Files storage |
+
+**Screenshots, the Simulator.app way.** After a screenshot, a thumbnail floats in the simulator's
+bottom-right corner, like it did before Device Hub. Drag it into any app (Slack, Figma, Xcode, a
+Finder window…) and it's handed over, with no copy left behind. Leave it alone and it saves to the
+Desktop after 5 seconds (hovering keeps it around). Click it to save and open it; right-click for
+Save, Copy or Delete.
 
 **Menu bar app.** Drop files on the menu bar icon or in its panel to send them to every checked
 booted simulator. The ⋯ menu turns the floating toolbar on or off.
@@ -94,6 +101,7 @@ simsling send --app com.example.myapp seed.sqlite
 simsling clip-to-sim
 simsling clip-from-sim
 simsling open "myapp://settings"
+simsling screenshot                            # to the Desktop, Simulator.app naming
 ```
 
 ## License

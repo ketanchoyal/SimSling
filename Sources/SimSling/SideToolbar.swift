@@ -158,6 +158,7 @@ final class SideToolbarController {
         let gap: CGFloat = 8
         // Flip from CoreGraphics (top-left) to AppKit (bottom-left) coordinates.
         let host = NSRect(x: cgFrame.minX, y: primary.frame.maxY - cgFrame.maxY, width: cgFrame.width, height: cgFrame.height)
+        panel.hostFrame = host
         let size = panel.frame.size
         let screen = NSScreen.screens.max { overlap($0.frame, host) < overlap($1.frame, host) }
         let visible = screen?.visibleFrame ?? primary.visibleFrame
@@ -195,6 +196,7 @@ final class SidePanelModel {
     /// Toolbar buttons by ID, with frames in SwiftUI (top-left) coordinates of the hosting view.
     @ObservationIgnored var buttons: [String: ButtonInfo] = [:]
     @ObservationIgnored var dismissHover: (() -> Void)?
+    @ObservationIgnored var showScreenshot: ((URL) -> Void)?
 }
 
 /// Hosting view that tracks the pointer even while SimSling is inactive. SwiftUI's `onHover` only
@@ -254,6 +256,72 @@ final class SidePanel: NSPanel {
         setContentSize(hosting.fittingSize)
         hosting.onPointer = { [weak self] point in self?.pointerMoved(to: point) }
         model.dismissHover = { [weak self] in self?.hideHoverLabel() }
+        model.showScreenshot = { [weak self] url in self?.showScreenshot(url) }
+    }
+
+    /// The simulator window's frame in AppKit screen coordinates, kept current by the controller.
+    var hostFrame: NSRect = .zero {
+        didSet { if hostFrame.size != oldValue.size { layoutThumbnails() } }
+    }
+
+    // MARK: Screenshots
+
+    private var thumbnails: [ScreenshotThumbnail] = []
+
+    func showScreenshot(_ url: URL) {
+        guard let image = NSImage(contentsOf: url) else { return }
+        flash()
+        let thumbnail = ScreenshotThumbnail(url: url, image: image, width: 110)
+        thumbnail.onFinished = { [weak self] finished in
+            guard let self else { return }
+            self.removeChildWindow(finished)
+            self.thumbnails.removeAll { $0 === finished }
+            self.layoutThumbnails()
+        }
+        thumbnails.append(thumbnail)
+        layoutThumbnails()
+        // As child windows the thumbnails move with the toolbar, and so with the simulator.
+        addChildWindow(thumbnail, ordered: .above)
+        thumbnail.startTimer()
+    }
+
+    /// Stacks thumbnails up from the simulator's bottom-right corner, newest at the bottom.
+    private func layoutThumbnails() {
+        guard hostFrame != .zero else { return }
+        var y = hostFrame.minY + 18
+        for thumbnail in thumbnails.reversed() {
+            let size = thumbnail.frame.size
+            thumbnail.setFrameOrigin(NSPoint(x: (hostFrame.maxX - 18 - size.width).rounded(), y: y.rounded()))
+            y += size.height + 10
+        }
+    }
+
+    /// A quick white flash over the simulator, like Simulator.app's screenshot.
+    private func flash() {
+        guard hostFrame != .zero else { return }
+        let flash = NSPanel(contentRect: hostFrame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        flash.backgroundColor = .clear
+        flash.isOpaque = false
+        flash.hasShadow = false
+        flash.ignoresMouseEvents = true
+        flash.isReleasedWhenClosed = false
+        flash.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        let view = NSView(frame: NSRect(origin: .zero, size: hostFrame.size))
+        view.wantsLayer = true
+        view.layer?.backgroundColor = NSColor.white.cgColor
+        view.layer?.cornerRadius = 40
+        flash.contentView = view
+        flash.alphaValue = 0.75
+        addChildWindow(flash, ordered: .above)
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.35
+            flash.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                self?.removeChildWindow(flash)
+                flash.orderOut(nil)
+            }
+        })
     }
 
     // Lets the URL text field receive typing.
@@ -369,6 +437,9 @@ struct SideToolbarView: View {
                 showURLField.toggle()
             }
                 .popover(isPresented: $showURLField, arrowEdge: .trailing) { urlPopover }
+            tool("camera", "Screenshot", "Capture \(deviceLabel)'s screen. Drag the thumbnail into any app, or leave it to save to the Desktop") {
+                store.takeScreenshot(on: target) { url in model.showScreenshot?(url) }
+            }
             tool("folder", "Show in Finder", "Open \(deviceLabel)'s Files app storage in Finder") { store.revealFilesFolder(on: target) }
         }
         .padding(5)

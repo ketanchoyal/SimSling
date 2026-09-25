@@ -12,6 +12,7 @@ enum CLI {
       clip-from-sim                 Copy the simulator clipboard to the Mac
       open <url>                    Open a URL / deep link on the simulator(s)
       files-path                    Print the Files app "On My iPhone" folder
+      screenshot [path]             Save a screenshot (default: Desktop, Simulator.app naming)
 
     Options:
       -d, --device <udid|name>      Target a simulator (repeatable). Default: all booted.
@@ -111,6 +112,25 @@ enum CLI {
                 for device in targets {
                     try await Simctl.openURL(url, on: device.udid)
                     print("✓ Opened \(url) on \(device.name)")
+                }
+
+            case "screenshot":
+                for device in targets {
+                    let captured = try await Screenshots.capture(device)
+                    let saved: URL
+                    if let path = positional.first {
+                        var destination = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+                        var isDirectory: ObjCBool = false
+                        if FileManager.default.fileExists(atPath: destination.path, isDirectory: &isDirectory), isDirectory.boolValue {
+                            destination.appendPathComponent(captured.lastPathComponent)
+                        }
+                        try? FileManager.default.removeItem(at: destination)
+                        try FileManager.default.moveItem(at: captured, to: destination)
+                        saved = destination
+                    } else {
+                        saved = try Screenshots.saveToDesktop(captured)
+                    }
+                    print("✓ \(device.name): \(saved.path)")
                 }
 
             case "files-path":

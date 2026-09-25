@@ -163,6 +163,10 @@ enum Simctl {
         try await run(["pbsync", source, destination])
     }
 
+    static func screenshot(_ udid: String, to url: URL) async throws {
+        try await run(["io", udid, "screenshot", "--type=png", url.path])
+    }
+
     static func copyText(_ text: String, on udid: String) async throws {
         try await run(["pbcopy", udid], stdin: Data(text.utf8))
     }

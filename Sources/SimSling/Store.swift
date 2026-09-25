@@ -180,6 +180,18 @@ final class SimSlingStore {
         }
     }
 
+    /// Captures the simulator's screen and hands the file to `show` (the side toolbar's thumbnail).
+    func takeScreenshot(on target: Target, show: @escaping @MainActor (URL) -> Void) {
+        perform(on: target) { store, targets in
+            let device = targets[0]
+            let url = try await Screenshots.capture(device)
+            Screenshots.playShutter()
+            show(url)
+            store.append("Screenshot of \(device.name)")
+            return true
+        }
+    }
+
     func clearLog() { log.removeAll() }
 
     // MARK: Helpers
