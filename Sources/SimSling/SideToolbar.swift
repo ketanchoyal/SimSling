@@ -9,8 +9,16 @@ final class SideToolbarController {
 
     private let store: SimSlingStore
     private var panels: [Int: SidePanel] = [:]   // keyed by the simulator's CGWindowID
+    /// When each simulator window was last seen on screen.
+    private var lastSeen: [Int: Date] = [:]
     private var timer: Timer?
-    private var activationObserver: NSObjectProtocol?
+    private var observers: [NSObjectProtocol] = []
+
+    /// Simulator windows briefly drop out of the window list while moving between displays.
+    /// Riding that out keeps the toolbar from blinking or being rebuilt mid-drag.
+    private let hideAfter: TimeInterval = 0.35
+    /// A panel whose window has been gone this long is discarded instead of kept for reuse.
+    private let discardAfter: TimeInterval = 30
 
     init(store: SimSlingStore) {
         self.store = store
@@ -21,28 +29,40 @@ final class SideToolbarController {
     }
 
     private func start() {
-        guard activationObserver == nil else { return }
+        guard observers.isEmpty else { return }
+        let center = NSWorkspace.shared.notificationCenter
         // Poll quickly while the simulator host is frontmost (the user may be dragging a window)
         // and slowly otherwise.
-        activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
-        ) { [weak self] _ in
+        observers.append(center.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.schedule()
                 self?.tick()
             }
-        }
+        })
+        // Panels are on every Space, so hide them the moment the Space changes; the next tick
+        // brings back the ones whose simulator is on the new Space.
+        observers.append(center.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                for (number, panel) in self.panels {
+                    panel.orderOut(nil)
+                    self.lastSeen[number] = .distantPast
+                }
+                self.tick()
+            }
+        })
         schedule()
         tick()
     }
 
     private func stop() {
-        if let activationObserver { NSWorkspace.shared.notificationCenter.removeObserver(activationObserver) }
-        activationObserver = nil
+        observers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
+        observers.removeAll()
         timer?.invalidate()
         timer = nil
         panels.values.forEach { $0.orderOut(nil) }
         panels.removeAll()
+        lastSeen.removeAll()
     }
 
     private func schedule() {
@@ -81,7 +101,9 @@ final class SideToolbarController {
         }
 
         var needsDeviceRefresh = false
+        let now = Date()
         for host in hosts {
+            lastSeen[host.number] = now
             let panel: SidePanel
             if let existing = panels[host.number] {
                 panel = existing
@@ -100,7 +122,7 @@ final class SideToolbarController {
                 panel.order(.above, relativeTo: host.number)
             }
         }
-        removePanels(except: Set(hosts.map(\.number)))
+        hideMissingPanels(now: now)
         if needsDeviceRefresh { Task { await store.refresh() } }
     }
 
@@ -117,10 +139,17 @@ final class SideToolbarController {
         return result
     }
 
-    private func removePanels(except keep: Set<Int>) {
-        for (number, panel) in panels where !keep.contains(number) {
-            panel.orderOut(nil)
-            panels[number] = nil
+    /// Hides panels whose simulator window has been missing for a moment, and discards ones
+    /// that have been gone for a long time. Hidden panels are reused if the window comes back.
+    private func hideMissingPanels(now: Date) {
+        for (number, panel) in panels {
+            let missingFor = now.timeIntervalSince(lastSeen[number] ?? .distantPast)
+            guard missingFor > hideAfter else { continue }
+            if panel.isVisible { panel.orderOut(nil) }
+            if missingFor > discardAfter {
+                panels[number] = nil
+                lastSeen[number] = nil
+            }
         }
     }
 
@@ -217,7 +246,7 @@ final class SidePanel: NSPanel {
         backgroundColor = .clear
         isOpaque = false
         hasShadow = true
-        collectionBehavior = [.fullScreenAuxiliary, .ignoresCycle]
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
 
         acceptsMouseMovedEvents = true
         let hosting = ToolbarHostingView(rootView: SideToolbarView(store: store, model: model))
@@ -280,7 +309,7 @@ final class HoverLabelWindow: NSPanel {
         isOpaque = false
         hasShadow = true
         isReleasedWhenClosed = false
-        collectionBehavior = [.fullScreenAuxiliary, .ignoresCycle]
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         contentView = hosting
     }
 
