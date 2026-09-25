@@ -33,6 +33,8 @@ struct MenuView: View {
                 .buttonStyle(.borderless)
                 .help("Refresh booted simulators")
             Menu {
+                Toggle("Show Toolbar Beside Simulators", isOn: $store.showSideToolbar)
+                Divider()
                 Button("Quit SimDrop") { NSApp.terminate(nil) }
             } label: { Image(systemName: "ellipsis.circle") }
                 .menuStyle(.borderlessButton)

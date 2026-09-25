@@ -1,0 +1,335 @@
+import AppKit
+import SwiftUI
+
+/// Pins a small toolbar panel next to every simulator window (Xcode 27 Device Hub, or the
+/// classic Simulator.app) and keeps it glued there as the window moves.
+@MainActor
+final class SideToolbarController {
+    static let hostBundleIDs: Set<String> = ["com.apple.dt.Devices", "com.apple.iphonesimulator"]
+
+    private let store: SimDropStore
+    private var panels: [Int: SidePanel] = [:]   // keyed by the simulator's CGWindowID
+    private var timer: Timer?
+    private var activationObserver: NSObjectProtocol?
+
+    init(store: SimDropStore) {
+        self.store = store
+    }
+
+    func setEnabled(_ enabled: Bool) {
+        if enabled { start() } else { stop() }
+    }
+
+    private func start() {
+        guard activationObserver == nil else { return }
+        // Poll quickly while the simulator host is frontmost (the user may be dragging a window)
+        // and slowly otherwise.
+        activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.schedule()
+                self?.tick()
+            }
+        }
+        schedule()
+        tick()
+    }
+
+    private func stop() {
+        if let activationObserver { NSWorkspace.shared.notificationCenter.removeObserver(activationObserver) }
+        activationObserver = nil
+        timer?.invalidate()
+        timer = nil
+        panels.values.forEach { $0.orderOut(nil) }
+        panels.removeAll()
+    }
+
+    private func schedule() {
+        timer?.invalidate()
+        let hostActive = Self.hostBundleIDs.contains(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "")
+        timer = Timer.scheduledTimer(withTimeInterval: hostActive ? 1.0 / 30 : 0.4, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tick() }
+        }
+    }
+
+    private struct HostWindow {
+        let number: Int
+        let title: String?
+        let frame: CGRect   // CoreGraphics coordinates: top-left origin of the primary display
+    }
+
+    private func tick() {
+        let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        var zIndex: [Int: Int] = [:]   // 0 = frontmost
+        var hosts: [HostWindow] = []
+        let deviceNames = Set(store.devices.map(\.name))
+        for (index, window) in info.enumerated() {
+            guard let number = window[kCGWindowNumber as String] as? Int else { continue }
+            zIndex[number] = index
+            guard let pid = window[kCGWindowOwnerPID as String] as? pid_t, isHost(pid),
+                  window[kCGWindowLayer as String] as? Int == 0,
+                  let bounds = window[kCGWindowBounds as String] as? NSDictionary,
+                  let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary),
+                  frame.width >= 150, frame.height >= 150
+            else { continue }
+            // Window titles need Screen Recording permission. With a title, only attach to windows that
+            // are actually simulators; without one, attach to every large host window.
+            let title = (window[kCGWindowName as String] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            if let title, !deviceNames.isEmpty, !deviceNames.contains(title) { continue }
+            hosts.append(HostWindow(number: number, title: title, frame: frame))
+        }
+
+        var needsDeviceRefresh = false
+        for host in hosts {
+            let panel: SidePanel
+            if let existing = panels[host.number] {
+                panel = existing
+            } else {
+                panel = SidePanel(store: store)
+                panels[host.number] = panel
+                needsDeviceRefresh = true
+            }
+            panel.model.windowTitle = host.title
+            position(panel, beside: host.frame)
+
+            // Keep the panel directly above its simulator: in front of it, but behind any window
+            // that covers the simulator.
+            let panelZ = zIndex[panel.windowNumber]
+            if panelZ == nil || panelZ != zIndex[host.number].map({ $0 - 1 }) {
+                panel.order(.above, relativeTo: host.number)
+            }
+        }
+        removePanels(except: Set(hosts.map(\.number)))
+        if needsDeviceRefresh { Task { await store.refresh() } }
+    }
+
+    private var hostCache: [pid_t: Bool] = [:]
+
+    /// Resolve by PID: Device Hub's entry in `NSWorkspace.runningApplications` reports pid -1,
+    /// but looking the process up directly returns the right bundle ID.
+    private func isHost(_ pid: pid_t) -> Bool {
+        if let cached = hostCache[pid] { return cached }
+        let app = NSRunningApplication(processIdentifier: pid)
+        let result = Self.hostBundleIDs.contains(app?.bundleIdentifier ?? "")
+        // Only cache live processes so a recycled PID can't be misclassified forever.
+        if app != nil { hostCache[pid] = result }
+        return result
+    }
+
+    private func removePanels(except keep: Set<Int>) {
+        for (number, panel) in panels where !keep.contains(number) {
+            panel.orderOut(nil)
+            panels[number] = nil
+        }
+    }
+
+    private func position(_ panel: SidePanel, beside cgFrame: CGRect) {
+        guard let primary = NSScreen.screens.first else { return }
+        let gap: CGFloat = 8
+        // Flip from CoreGraphics (top-left) to AppKit (bottom-left) coordinates.
+        let host = NSRect(x: cgFrame.minX, y: primary.frame.maxY - cgFrame.maxY, width: cgFrame.width, height: cgFrame.height)
+        let size = panel.frame.size
+        let screen = NSScreen.screens.max { overlap($0.frame, host) < overlap($1.frame, host) }
+        let visible = screen?.visibleFrame ?? primary.visibleFrame
+
+        var x = host.maxX + gap
+        if x + size.width > visible.maxX { x = host.minX - gap - size.width }   // no room: dock on the left
+        var y = host.maxY - size.height - 44                                     // just below the title bar
+        y = min(max(y, visible.minY), visible.maxY - size.height)
+
+        let origin = NSPoint(x: x.rounded(), y: y.rounded())
+        if panel.frame.origin != origin { panel.setFrameOrigin(origin) }
+    }
+
+    private func overlap(_ a: NSRect, _ b: NSRect) -> CGFloat {
+        let i = a.intersection(b)
+        return i.isNull ? 0 : i.width * i.height
+    }
+}
+
+@MainActor
+@Observable
+final class SidePanelModel {
+    /// Title of the simulator window this panel is attached to (its device name), if readable.
+    var windowTitle: String?
+}
+
+/// Borderless, non-activating panel: clicking its buttons doesn't pull focus away from the simulator.
+final class SidePanel: NSPanel {
+    let model = SidePanelModel()
+
+    init(store: SimDropStore) {
+        super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        isFloatingPanel = false
+        level = .normal
+        hidesOnDeactivate = false
+        becomesKeyOnlyIfNeeded = true
+        isReleasedWhenClosed = false
+        backgroundColor = .clear
+        isOpaque = false
+        hasShadow = true
+        collectionBehavior = [.fullScreenAuxiliary, .ignoresCycle]
+
+        let hosting = NSHostingView(rootView: SideToolbarView(store: store, model: model))
+        contentView = hosting
+        setContentSize(hosting.fittingSize)
+    }
+
+    // Lets the URL text field receive typing.
+    override var canBecomeKey: Bool { true }
+}
+
+struct SideToolbarView: View {
+    @Bindable var store: SimDropStore
+    let model: SidePanelModel
+
+    @State private var dropTargeted = false
+    @State private var showURLField = false
+    @State private var urlText = ""
+    @State private var badge: Bool?   // true = success, false = failure, nil = hidden
+
+    /// The simulator this toolbar sits beside. When the window title can't be read, fall back to
+    /// the devices checked in the menu.
+    private var device: SimDevice? {
+        model.windowTitle.flatMap { title in store.devices.first { $0.name == title } }
+    }
+    private var devices: [SimDevice]? { device.map { [$0] } }
+    private var deviceLabel: String { device?.name ?? "selected simulators" }
+
+    var body: some View {
+        VStack(spacing: 2) {
+            tool("tray.and.arrow.down", "Send files to \(deviceLabel)… (or drop files on this toolbar)") {
+                store.chooseFiles(for: devices)
+            }
+            destinationMenu
+            Divider().padding(.vertical, 3)
+            tool("doc.on.clipboard", "Paste Mac clipboard into \(deviceLabel)") {
+                store.pushMacClipboard(to: devices)
+            }
+            tool("arrow.down.doc", "Copy \(deviceLabel) clipboard to Mac") {
+                if let target = device ?? store.targets.first { store.pullClipboard(from: target) }
+            }
+            tool("link", "Open URL or deep link") { showURLField.toggle() }
+                .popover(isPresented: $showURLField, arrowEdge: .trailing) { urlPopover }
+            tool("folder", "Show Files storage in Finder") { store.revealFilesFolder(on: device) }
+        }
+        .padding(5)
+        .background {
+            RoundedRectangle(cornerRadius: 12, style: .continuous).fill(.regularMaterial)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(dropTargeted ? Color.accentColor : Color.primary.opacity(0.12), lineWidth: dropTargeted ? 2 : 0.5)
+        }
+        .overlay { if let badge { badgeView(ok: badge) } }
+        .dropDestination(for: URL.self) { urls, _ in
+            let files = urls.filter(\.isFileURL)
+            store.send(files, to: devices)
+            return !files.isEmpty
+        } isTargeted: { dropTargeted = $0 }
+        .onChange(of: store.lastOutcome) { _, outcome in
+            guard let outcome, device.map({ outcome.udids.contains($0.udid) }) ?? true else { return }
+            withAnimation { badge = outcome.ok }
+            Task {
+                try? await Task.sleep(for: .seconds(1.5))
+                withAnimation { badge = nil }
+            }
+        }
+        .fixedSize()
+    }
+
+    private var destinationMenu: some View {
+        Menu {
+            Picker("Destination", selection: $store.mode) {
+                ForEach(SimDropStore.DestinationMode.allCases) { mode in
+                    Label(mode.rawValue, systemImage: symbol(for: mode)).tag(mode)
+                }
+            }
+            .pickerStyle(.inline)
+            if store.mode == .app {
+                Picker("App", selection: $store.appBundleID) {
+                    ForEach(store.apps) { Text($0.name).tag(Optional($0.bundleID)) }
+                }
+            }
+        } label: {
+            Image(systemName: symbol(for: store.mode))
+                .font(.system(size: 15))
+                .frame(width: 30, height: 30)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(ToolButtonStyle())
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Destination: \(store.mode.rawValue)")
+    }
+
+    private var urlPopover: some View {
+        HStack {
+            TextField("myapp://path or https://…", text: $urlText)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 240)
+                .onSubmit(openURL)
+            Button("Open", action: openURL)
+                .disabled(urlText.trimmingCharacters(in: .whitespaces).isEmpty)
+        }
+        .padding(10)
+    }
+
+    private func openURL() {
+        store.openURL(urlText, on: devices)
+        showURLField = false
+    }
+
+    private func tool(_ symbol: String, _ help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 15))
+                .frame(width: 30, height: 30)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(ToolButtonStyle())
+        .help(help)
+    }
+
+    private func badgeView(ok: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(.regularMaterial)
+            .overlay {
+                Image(systemName: ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .font(.system(size: 22))
+                    .foregroundStyle(ok ? .green : .orange)
+            }
+            .transition(.opacity)
+    }
+
+    private func symbol(for mode: SimDropStore.DestinationMode) -> String {
+        switch mode {
+        case .auto: "wand.and.stars"
+        case .files: "folder.badge.plus"
+        case .media: "photo.on.rectangle"
+        case .app: "app.badge"
+        }
+    }
+}
+
+private struct ToolButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HoverHighlight(isPressed: configuration.isPressed) { configuration.label }
+    }
+}
+
+private struct HoverHighlight<Content: View>: View {
+    let isPressed: Bool
+    @ViewBuilder let content: Content
+    @State private var hovering = false
+
+    var body: some View {
+        content
+            .foregroundStyle(.primary)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color.primary.opacity(isPressed ? 0.18 : hovering ? 0.09 : 0))
+            )
+            .onHover { hovering = $0 }
+    }
+}

@@ -16,6 +16,10 @@ for everything else.
 | `.app` bundle | Installed (`simctl install`) |
 | Anything else, including folders | Files › On My iPhone |
 
+A slim toolbar also docks beside each open simulator window (Device Hub or Simulator.app) and
+follows it around. Drop files on it, or use its buttons, and they go to *that* simulator.
+Toggle it from the menu's ⋯ button.
+
 Destination can be forced to **Files**, **Photos**, or an installed **App**'s `Documents` folder.
 It sends to every booted simulator that's checked. Also: push/pull the clipboard (`pbsync`),
 open URLs/deep links, reveal the Files storage folder in Finder.

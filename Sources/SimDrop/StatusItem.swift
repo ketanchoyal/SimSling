@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let store = SimDropStore()
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
+    private lazy var sideToolbars = SideToolbarController(store: store)
     private let idleSymbol = "iphone.and.arrow.forward"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -27,6 +28,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover.contentViewController = NSHostingController(rootView: MenuView(store: store))
 
         store.onTransferFinished = { [weak self] ok in self?.flash(ok) }
+        store.onSideToolbarChanged = { [weak self] in self?.sideToolbars.setEnabled($0) }
+        sideToolbars.setEnabled(store.showSideToolbar)
     }
 
     private func togglePopover() {

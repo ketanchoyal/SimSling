@@ -31,8 +31,26 @@ final class SimDropStore {
         didSet { UserDefaults.standard.set(openFilesAfterCopy, forKey: "openFilesAfterCopy") }
     }
 
-    /// Called with `true`/`false` when a transfer finishes, so the menu bar icon can flash.
+    var showSideToolbar = UserDefaults.standard.object(forKey: "showSideToolbar") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(showSideToolbar, forKey: "showSideToolbar")
+            onSideToolbarChanged?(showSideToolbar)
+        }
+    }
+
+    struct Outcome: Equatable {
+        let id = UUID()
+        let ok: Bool
+        /// Devices the action ran on, so each side toolbar can show its own result.
+        let udids: Set<String>
+    }
+
+    /// The result of the most recent action.
+    private(set) var lastOutcome: Outcome?
+
+    /// Called with `true`/`false` when an action finishes, so the menu bar icon can flash.
     var onTransferFinished: ((Bool) -> Void)?
+    var onSideToolbarChanged: ((Bool) -> Void)?
 
     var targets: [SimDevice] { devices.filter { !excluded.contains($0.udid) } }
 
@@ -66,10 +84,13 @@ final class SimDropStore {
     }
 
     // MARK: Actions
+    //
+    // Every action takes an optional device list. `nil` means "the devices checked in the menu";
+    // the side toolbars pass their own simulator.
 
-    func send(_ urls: [URL]) {
+    func send(_ urls: [URL], to devices: [SimDevice]? = nil) {
         guard !urls.isEmpty else { return }
-        perform { store in
+        perform(on: devices) { store, targets in
             let destination: Destination
             switch store.mode {
             case .auto: destination = .auto
@@ -81,7 +102,7 @@ final class SimDropStore {
             }
             let openFiles = store.openFilesAfterCopy
             let reports = await withTaskGroup(of: TransferReport.self) { group in
-                for device in store.targets {
+                for device in targets {
                     group.addTask { await Transfer.send(urls, to: device, destination: destination, openFilesApp: openFiles) }
                 }
                 var reports: [TransferReport] = []
@@ -97,19 +118,19 @@ final class SimDropStore {
         }
     }
 
-    func chooseFiles() {
+    func chooseFiles(for devices: [SimDevice]? = nil) {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = true
         panel.canChooseFiles = true
         panel.prompt = "Send"
         NSApp.activate()
-        if panel.runModal() == .OK { send(panel.urls) }
+        if panel.runModal() == .OK { send(panel.urls, to: devices) }
     }
 
-    func pushMacClipboard() {
-        perform { store in
-            for device in store.targets {
+    func pushMacClipboard(to devices: [SimDevice]? = nil) {
+        perform(on: devices) { store, targets in
+            for device in targets {
                 try await Simctl.syncPasteboard(from: "host", to: device.udid)
                 store.append("Mac clipboard → \(device.name)")
             }
@@ -118,18 +139,20 @@ final class SimDropStore {
     }
 
     func pullClipboard(from device: SimDevice) {
-        perform { store in
-            try await Simctl.syncPasteboard(from: device.udid, to: "host")
-            store.append("\(device.name) clipboard → Mac")
+        perform(on: [device]) { store, targets in
+            for device in targets.prefix(1) {
+                try await Simctl.syncPasteboard(from: device.udid, to: "host")
+                store.append("\(device.name) clipboard → Mac")
+            }
             return true
         }
     }
 
-    func openURL(_ raw: String) {
+    func openURL(_ raw: String, on devices: [SimDevice]? = nil) {
         let url = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !url.isEmpty else { return }
-        perform { store in
-            for device in store.targets {
+        perform(on: devices) { store, targets in
+            for device in targets {
                 try await Simctl.openURL(url, on: device.udid)
                 store.append("Opened \(url) on \(device.name)")
             }
@@ -137,10 +160,9 @@ final class SimDropStore {
         }
     }
 
-    func revealFilesFolder() {
-        perform { store in
-            guard let device = store.targets.first else { throw SimDropError("No simulator selected") }
-            let folder = try await Simctl.filesAppStorage(on: device.udid)
+    func revealFilesFolder(on device: SimDevice? = nil) {
+        perform(on: device.map { [$0] }) { _, targets in
+            let folder = try await Simctl.filesAppStorage(on: targets[0].udid)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             NSWorkspace.shared.open(folder)
             return true
@@ -151,23 +173,31 @@ final class SimDropStore {
 
     // MARK: Helpers
 
-    private func perform(_ work: @escaping @MainActor (SimDropStore) async throws -> Bool) {
+    private func perform(on devices: [SimDevice]?, _ work: @escaping @MainActor (SimDropStore, [SimDevice]) async throws -> Bool) {
         Task {
             busy = true
             defer { busy = false }
             await refresh()
+            // Explicit devices must still be booted; compare by UDID against the fresh list.
+            let targets = devices.map { wanted in self.devices.filter { d in wanted.contains { $0.udid == d.udid } } } ?? self.targets
+            let udids = Set(targets.map(\.udid))
             guard !targets.isEmpty else {
                 append(error: "No booted simulator selected")
-                onTransferFinished?(false)
+                finish(ok: false, udids: udids)
                 return
             }
             do {
-                onTransferFinished?(try await work(self))
+                finish(ok: try await work(self, targets), udids: udids)
             } catch {
                 append(error: error.localizedDescription)
-                onTransferFinished?(false)
+                finish(ok: false, udids: udids)
             }
         }
+    }
+
+    private func finish(ok: Bool, udids: Set<String>) {
+        lastOutcome = Outcome(ok: ok, udids: udids)
+        onTransferFinished?(ok)
     }
 
     private func append(_ text: String) { push(LogEntry(isError: false, text: text)) }
