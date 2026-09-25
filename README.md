@@ -1,14 +1,48 @@
-# SimDrop
+<p align="center">
+  <img src="Assets/logo.png" width="160" alt="SimDrop logo">
+</p>
 
-A menu bar app (and CLI) for the stuff the Xcode 27 Device Hub dropped: getting files into
-iOS simulators. Drag files onto the menu bar icon, or open it and drop them in the panel.
+<h1 align="center">SimDrop</h1>
 
-Background: [developer.apple.com/forums/thread/846994](https://developer.apple.com/forums/thread/846994).
-Device Hub ignores drag and drop and Finder copies can land as zero-byte files, so SimDrop
-writes straight into the Files app's "On My iPhone" storage with `rsync`, and uses `simctl`
-for everything else.
+<p align="center">
+  Drop files into iOS simulators again.<br>
+  A menu bar app, a floating toolbar docked beside each simulator, and a CLI for the Xcode 27 Device Hub.
+</p>
 
-## What it does
+<p align="center">
+  <img src="Assets/screenshot.png" width="520" alt="SimDrop toolbar docked beside an iPhone simulator">
+</p>
+
+## Why
+
+In Xcode 27 the simulator lives in **Device Hub**, and getting arbitrary files into it got harder:
+drag and drop is ignored, there's no "share with simulator" in Finder, and Finder copies into the
+simulator's storage can land as zero-byte files
+([developer.apple.com/forums/thread/846994](https://developer.apple.com/forums/thread/846994)).
+
+SimDrop writes straight into the Files app's **On My iPhone** storage with `rsync`, and uses
+`simctl` for everything else.
+
+## Features
+
+**Floating toolbar.** A slim toolbar docks beside every open simulator window and follows it as you
+move it (it flips to the left when there's no room on the right). It sits just above its own
+window, not over everything, and never steals focus from the simulator. Hover a button to see
+what it does. Everything on a toolbar acts on **that simulator only**.
+
+| Button | Does |
+| --- | --- |
+| Send Files | Pick files, or drop files anywhere on the toolbar |
+| Destination | Auto, Files, Photos, or an app's Documents folder |
+| Paste Mac Clipboard | Put the Mac clipboard onto the simulator |
+| Copy Sim Clipboard | Bring the simulator's clipboard to the Mac |
+| Open URL | Open a URL or deep link |
+| Show in Finder | Reveal the simulator's Files storage |
+
+**Menu bar app.** Drop files on the menu bar icon or in its panel to send them to every checked
+booted simulator. The ⋯ menu turns the floating toolbar on or off.
+
+**Auto routing.**
 
 | Drop | Goes to |
 | --- | --- |
@@ -16,20 +50,20 @@ for everything else.
 | `.app` bundle | Installed (`simctl install`) |
 | Anything else, including folders | Files › On My iPhone |
 
-A slim toolbar also docks beside each open simulator window (Device Hub or Simulator.app) and
-follows it around. Drop files on it, or use its buttons, and they go to *that* simulator.
-Toggle it from the menu's ⋯ button.
+## Install
 
-Destination can be forced to **Files**, **Photos**, or an installed **App**'s `Documents` folder.
-It sends to every booted simulator that's checked. Also: push/pull the clipboard (`pbsync`),
-open URLs/deep links, reveal the Files storage folder in Finder.
-
-## Build
+Requires Xcode 27 (or any Xcode with `simctl`) and macOS 15+.
 
 ```sh
-./scripts/build-app.sh          # -> build/SimDrop.app
+git clone https://github.com/ketanchoyal/SimDrop.git
+cd SimDrop
+./scripts/build-app.sh            # -> build/SimDrop.app
 cp -R build/SimDrop.app /Applications/
+open /Applications/SimDrop.app
 ```
+
+The floating toolbar reads simulator window titles to know which device each window is. If macOS
+hides them, allow SimDrop under **System Settings › Privacy & Security › Screen Recording**.
 
 ## CLI
 
@@ -42,6 +76,11 @@ simdrop list
 simdrop send backup.dat photos/*.heic          # all booted sims, auto-routed
 simdrop send -d "iPhone 17 Pro" --files data/
 simdrop send --app com.example.myapp seed.sqlite
-simdrop clip-to-sim | clip-from-sim
+simdrop clip-to-sim
+simdrop clip-from-sim
 simdrop open "myapp://settings"
 ```
+
+## License
+
+MIT

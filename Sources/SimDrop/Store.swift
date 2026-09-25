@@ -43,6 +43,8 @@ final class SimDropStore {
         let ok: Bool
         /// Devices the action ran on, so each side toolbar can show its own result.
         let udids: Set<String>
+        /// Set when the action came from a side toolbar.
+        let window: String?
     }
 
     /// The result of the most recent action.
@@ -85,12 +87,21 @@ final class SimDropStore {
 
     // MARK: Actions
     //
-    // Every action takes an optional device list. `nil` means "the devices checked in the menu";
-    // the side toolbars pass their own simulator.
+    // Every action takes a `Target`. The menu uses `.checked`; a side toolbar uses `.window` so it only
+    // ever acts on the simulator it's docked beside.
 
-    func send(_ urls: [URL], to devices: [SimDevice]? = nil) {
+    enum Target {
+        /// The simulators checked in the menu.
+        case checked
+        /// One specific device.
+        case device(SimDevice)
+        /// The simulator whose window has this title (Device Hub titles windows with the device name).
+        case window(title: String?)
+    }
+
+    func send(_ urls: [URL], to target: Target = .checked) {
         guard !urls.isEmpty else { return }
-        perform(on: devices) { store, targets in
+        perform(on: target) { store, targets in
             let destination: Destination
             switch store.mode {
             case .auto: destination = .auto
@@ -118,18 +129,18 @@ final class SimDropStore {
         }
     }
 
-    func chooseFiles(for devices: [SimDevice]? = nil) {
+    func chooseFiles(for target: Target = .checked) {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = true
         panel.canChooseFiles = true
         panel.prompt = "Send"
         NSApp.activate()
-        if panel.runModal() == .OK { send(panel.urls, to: devices) }
+        if panel.runModal() == .OK { send(panel.urls, to: target) }
     }
 
-    func pushMacClipboard(to devices: [SimDevice]? = nil) {
-        perform(on: devices) { store, targets in
+    func pushMacClipboard(to target: Target = .checked) {
+        perform(on: target) { store, targets in
             for device in targets {
                 try await Simctl.syncPasteboard(from: "host", to: device.udid)
                 store.append("Mac clipboard → \(device.name)")
@@ -138,8 +149,8 @@ final class SimDropStore {
         }
     }
 
-    func pullClipboard(from device: SimDevice) {
-        perform(on: [device]) { store, targets in
+    func pullClipboard(from target: Target) {
+        perform(on: target) { store, targets in
             for device in targets.prefix(1) {
                 try await Simctl.syncPasteboard(from: device.udid, to: "host")
                 store.append("\(device.name) clipboard → Mac")
@@ -148,10 +159,10 @@ final class SimDropStore {
         }
     }
 
-    func openURL(_ raw: String, on devices: [SimDevice]? = nil) {
+    func openURL(_ raw: String, on target: Target = .checked) {
         let url = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !url.isEmpty else { return }
-        perform(on: devices) { store, targets in
+        perform(on: target) { store, targets in
             for device in targets {
                 try await Simctl.openURL(url, on: device.udid)
                 store.append("Opened \(url) on \(device.name)")
@@ -160,8 +171,8 @@ final class SimDropStore {
         }
     }
 
-    func revealFilesFolder(on device: SimDevice? = nil) {
-        perform(on: device.map { [$0] }) { _, targets in
+    func revealFilesFolder(on target: Target = .checked) {
+        perform(on: target) { _, targets in
             let folder = try await Simctl.filesAppStorage(on: targets[0].udid)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             NSWorkspace.shared.open(folder)
@@ -173,30 +184,50 @@ final class SimDropStore {
 
     // MARK: Helpers
 
-    private func perform(on devices: [SimDevice]?, _ work: @escaping @MainActor (SimDropStore, [SimDevice]) async throws -> Bool) {
+    private func perform(on target: Target, _ work: @escaping @MainActor (SimDropStore, [SimDevice]) async throws -> Bool) {
         Task {
             busy = true
             defer { busy = false }
+            // Resolve against a fresh device list so a just-booted simulator is found.
             await refresh()
-            // Explicit devices must still be booted; compare by UDID against the fresh list.
-            let targets = devices.map { wanted in self.devices.filter { d in wanted.contains { $0.udid == d.udid } } } ?? self.targets
-            let udids = Set(targets.map(\.udid))
-            guard !targets.isEmpty else {
-                append(error: "No booted simulator selected")
-                finish(ok: false, udids: udids)
-                return
-            }
+            let window: String? = if case .window(let title) = target { title } else { nil }
             do {
-                finish(ok: try await work(self, targets), udids: udids)
+                let targets = try resolve(target)
+                finish(ok: try await work(self, targets), udids: Set(targets.map(\.udid)), window: window)
             } catch {
                 append(error: error.localizedDescription)
-                finish(ok: false, udids: udids)
+                finish(ok: false, udids: [], window: window)
             }
         }
     }
 
-    private func finish(ok: Bool, udids: Set<String>) {
-        lastOutcome = Outcome(ok: ok, udids: udids)
+    /// Never widens a toolbar's target: a window that can't be matched to exactly one device is an error,
+    /// not a reason to fall back to every checked simulator.
+    private func resolve(_ target: Target) throws -> [SimDevice] {
+        switch target {
+        case .checked:
+            guard !targets.isEmpty else { throw SimDropError("No booted simulator selected") }
+            return targets
+        case .device(let device):
+            guard let match = devices.first(where: { $0.udid == device.udid }) else {
+                throw SimDropError("\(device.name) is no longer booted")
+            }
+            return [match]
+        case .window(let title):
+            guard let title else {
+                throw SimDropError("Can't read this simulator window's name. Allow SimDrop in System Settings › Privacy & Security › Screen Recording.")
+            }
+            let matches = devices.filter { $0.name == title }
+            switch matches.count {
+            case 1: return matches
+            case 0: throw SimDropError("No booted simulator named \(title)")
+            default: throw SimDropError("More than one booted simulator is named \(title). Rename one so SimDrop can tell them apart.")
+            }
+        }
+    }
+
+    private func finish(ok: Bool, udids: Set<String>, window: String?) {
+        lastOutcome = Outcome(ok: ok, udids: udids, window: window)
         onTransferFinished?(ok)
     }
 

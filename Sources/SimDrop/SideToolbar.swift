@@ -134,12 +134,17 @@ final class SideToolbarController {
         let visible = screen?.visibleFrame ?? primary.visibleFrame
 
         var x = host.maxX + gap
-        if x + size.width > visible.maxX { x = host.minX - gap - size.width }   // no room: dock on the left
+        let dockLeft = x + size.width > visible.maxX                            // no room: dock on the left
+        if dockLeft { x = host.minX - gap - size.width }
+        panel.labelsOnLeft = dockLeft
         var y = host.maxY - size.height - 44                                     // just below the title bar
         y = min(max(y, visible.minY), visible.maxY - size.height)
 
         let origin = NSPoint(x: x.rounded(), y: y.rounded())
-        if panel.frame.origin != origin { panel.setFrameOrigin(origin) }
+        if panel.frame.origin != origin {
+            panel.hideHoverLabel()
+            panel.setFrameOrigin(origin)
+        }
     }
 
     private func overlap(_ a: NSRect, _ b: NSRect) -> CGFloat {
@@ -153,6 +158,49 @@ final class SideToolbarController {
 final class SidePanelModel {
     /// Title of the simulator window this panel is attached to (its device name), if readable.
     var windowTitle: String?
+
+    /// ID of the button under the pointer, drives the hover highlight.
+    var hovered: String?
+
+    struct ButtonInfo { var title: String; var detail: String; var frame: CGRect }
+    /// Toolbar buttons by ID, with frames in SwiftUI (top-left) coordinates of the hosting view.
+    @ObservationIgnored var buttons: [String: ButtonInfo] = [:]
+    @ObservationIgnored var dismissHover: (() -> Void)?
+}
+
+/// Hosting view that tracks the pointer even while SimDrop is inactive. SwiftUI's `onHover` only
+/// fires for the active app, and these panels never activate the app.
+final class ToolbarHostingView: NSHostingView<SideToolbarView> {
+    var onPointer: ((CGPoint?) -> Void)?
+    private var tracking: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        addTrackingArea(area)
+        tracking = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        report(event)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        report(event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        onPointer?(nil)
+    }
+
+    private func report(_ event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        onPointer?(isFlipped ? point : CGPoint(x: point.x, y: bounds.height - point.y))
+    }
 }
 
 /// Borderless, non-activating panel: clicking its buttons doesn't pull focus away from the simulator.
@@ -171,13 +219,94 @@ final class SidePanel: NSPanel {
         hasShadow = true
         collectionBehavior = [.fullScreenAuxiliary, .ignoresCycle]
 
-        let hosting = NSHostingView(rootView: SideToolbarView(store: store, model: model))
+        acceptsMouseMovedEvents = true
+        let hosting = ToolbarHostingView(rootView: SideToolbarView(store: store, model: model))
         contentView = hosting
         setContentSize(hosting.fittingSize)
+        hosting.onPointer = { [weak self] point in self?.pointerMoved(to: point) }
+        model.dismissHover = { [weak self] in self?.hideHoverLabel() }
     }
 
     // Lets the URL text field receive typing.
     override var canBecomeKey: Bool { true }
+
+    /// Which side of the toolbar hover labels appear on: away from the simulator.
+    var labelsOnLeft = false
+
+    private let hoverLabel = HoverLabelWindow()
+
+    /// `point` is in top-left coordinates of the content view, `nil` when the pointer leaves.
+    private func pointerMoved(to point: CGPoint?) {
+        guard let point, let (id, button) = model.buttons.first(where: {
+            // Grow each frame over the padding and the gaps between buttons so the label doesn't flicker.
+            $0.value.frame.insetBy(dx: -5, dy: -1.5).contains(point)
+        }) else {
+            hideHoverLabel()
+            return
+        }
+        guard model.hovered != id else { return }
+        model.hovered = id
+
+        // SwiftUI frames are top-left based; the window is bottom-left based.
+        let contentHeight = contentView?.bounds.height ?? frame.height
+        let midY = frame.minY + contentHeight - button.frame.midY
+        hoverLabel.show(title: button.title, detail: button.detail)
+        let size = hoverLabel.frame.size
+        let x = labelsOnLeft ? frame.minX - 6 - size.width : frame.maxX + 6
+        hoverLabel.setFrameOrigin(NSPoint(x: x.rounded(), y: (midY - size.height / 2).rounded()))
+        if hoverLabel.parent == nil { addChildWindow(hoverLabel, ordered: .above) }
+    }
+
+    func hideHoverLabel() {
+        model.hovered = nil
+        if hoverLabel.parent != nil { removeChildWindow(hoverLabel) }
+        hoverLabel.orderOut(nil)
+    }
+
+    override func orderOut(_ sender: Any?) {
+        hideHoverLabel()
+        super.orderOut(sender)
+    }
+}
+
+/// The small bubble that names a toolbar button while the pointer is over it.
+final class HoverLabelWindow: NSPanel {
+    private let hosting = NSHostingView(rootView: HoverLabel(title: "", detail: ""))
+
+    init() {
+        super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
+        ignoresMouseEvents = true
+        backgroundColor = .clear
+        isOpaque = false
+        hasShadow = true
+        isReleasedWhenClosed = false
+        collectionBehavior = [.fullScreenAuxiliary, .ignoresCycle]
+        contentView = hosting
+    }
+
+    func show(title: String, detail: String) {
+        hosting.rootView = HoverLabel(title: title, detail: detail)
+        setContentSize(hosting.fittingSize)
+    }
+}
+
+struct HoverLabel: View {
+    let title: String
+    let detail: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(title).font(.system(size: 12, weight: .semibold))
+            Text(detail).font(.system(size: 10.5)).opacity(0.75)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: 240, alignment: .leading)
+        .foregroundStyle(.white)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color(white: 0.12).opacity(0.94)))
+        .fixedSize(horizontal: true, vertical: true)
+    }
 }
 
 struct SideToolbarView: View {
@@ -189,30 +318,29 @@ struct SideToolbarView: View {
     @State private var urlText = ""
     @State private var badge: Bool?   // true = success, false = failure, nil = hidden
 
-    /// The simulator this toolbar sits beside. When the window title can't be read, fall back to
-    /// the devices checked in the menu.
-    private var device: SimDevice? {
-        model.windowTitle.flatMap { title in store.devices.first { $0.name == title } }
-    }
-    private var devices: [SimDevice]? { device.map { [$0] } }
-    private var deviceLabel: String { device?.name ?? "selected simulators" }
+    /// Every action from this toolbar targets only the simulator it sits beside.
+    private var target: SimDropStore.Target { .window(title: model.windowTitle) }
+    private var deviceLabel: String { model.windowTitle ?? "this simulator" }
 
     var body: some View {
         VStack(spacing: 2) {
-            tool("tray.and.arrow.down", "Send Files", "Send files to \(deviceLabel)… (or drop files on this toolbar)") {
-                store.chooseFiles(for: devices)
+            tool("tray.and.arrow.down", "Send Files", "Pick files for \(deviceLabel), or drop them on this toolbar") {
+                store.chooseFiles(for: target)
             }
             destinationMenu
             Divider().padding(.vertical, 3)
-            tool("doc.on.clipboard", "Paste to Sim", "Paste Mac clipboard into \(deviceLabel)") {
-                store.pushMacClipboard(to: devices)
+            tool("doc.on.clipboard", "Paste Mac Clipboard", "Put the Mac clipboard onto \(deviceLabel)") {
+                store.pushMacClipboard(to: target)
             }
-            tool("arrow.down.doc", "Copy from Sim", "Copy \(deviceLabel) clipboard to Mac") {
-                if let target = device ?? store.targets.first { store.pullClipboard(from: target) }
+            tool("arrow.down.doc", "Copy Sim Clipboard", "Bring \(deviceLabel)'s clipboard to the Mac") {
+                store.pullClipboard(from: target)
             }
-            tool("link", "Open URL", "Open a URL or deep link on \(deviceLabel)") { showURLField.toggle() }
+            tool("link", "Open URL", "Open a URL or deep link on \(deviceLabel)") {
+                model.dismissHover?()   // the popover replaces the label
+                showURLField.toggle()
+            }
                 .popover(isPresented: $showURLField, arrowEdge: .trailing) { urlPopover }
-            tool("folder", "Show in Finder", "Show \(deviceLabel) Files storage in Finder") { store.revealFilesFolder(on: device) }
+            tool("folder", "Show in Finder", "Open \(deviceLabel)'s Files app storage in Finder") { store.revealFilesFolder(on: target) }
         }
         .padding(5)
         .background {
@@ -223,11 +351,11 @@ struct SideToolbarView: View {
         .overlay { if let badge { badgeView(ok: badge) } }
         .dropDestination(for: URL.self) { urls, _ in
             let files = urls.filter(\.isFileURL)
-            store.send(files, to: devices)
+            store.send(files, to: target)
             return !files.isEmpty
         } isTargeted: { dropTargeted = $0 }
         .onChange(of: store.lastOutcome) { _, outcome in
-            guard let outcome, device.map({ outcome.udids.contains($0.udid) }) ?? true else { return }
+            guard let outcome, outcome.window != nil, outcome.window == model.windowTitle else { return }
             withAnimation { badge = outcome.ok }
             Task {
                 try? await Task.sleep(for: .seconds(1.5))
@@ -251,13 +379,13 @@ struct SideToolbarView: View {
                 }
             }
         } label: {
-            ToolLabel(symbol: symbol(for: store.mode), title: destinationTitle)
+            ToolIcon(symbol: symbol(for: store.mode))
         }
         .menuStyle(.button)
-        .buttonStyle(ToolButtonStyle())
+        .buttonStyle(ToolButtonStyle(highlighted: model.hovered == "destination"))
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("Where dropped files go: \(destinationHelp). Click to change.")
+        .modifier(HoverReport(id: "destination", title: "Destination: \(destinationTitle)", detail: "Files go to \(destinationHelp). Click to change.", model: model))
         .accessibilityLabel("Destination: \(destinationTitle)")
     }
 
@@ -272,7 +400,7 @@ struct SideToolbarView: View {
 
     private var destinationHelp: String {
         switch store.mode {
-        case .auto: "photos/videos/contacts to their apps, .app installs, the rest to Files"
+        case .auto: "Photos/Contacts, .app files get installed, the rest to Files"
         case .files: "Files › On My iPhone"
         case .media: "Photos and Contacts"
         case .app: "the \(store.apps.first { $0.bundleID == store.appBundleID }?.name ?? "selected") app's Documents folder"
@@ -292,16 +420,16 @@ struct SideToolbarView: View {
     }
 
     private func openURL() {
-        store.openURL(urlText, on: devices)
+        store.openURL(urlText, on: target)
         showURLField = false
     }
 
-    private func tool(_ symbol: String, _ title: String, _ help: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) { ToolLabel(symbol: symbol, title: title) }
-            .buttonStyle(ToolButtonStyle())
-            .help(help)
+    private func tool(_ symbol: String, _ title: String, _ detail: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) { ToolIcon(symbol: symbol) }
+            .buttonStyle(ToolButtonStyle(highlighted: model.hovered == symbol))
+            .modifier(HoverReport(id: symbol, title: title, detail: detail, model: model))
             .accessibilityLabel(title)
-            .accessibilityHint(help)
+            .accessibilityHint(detail)
     }
 
     private func badgeView(ok: Bool) -> some View {
@@ -325,46 +453,45 @@ struct SideToolbarView: View {
     }
 }
 
-/// Icon with a short caption underneath. Fixed size so the panel never needs resizing.
-private struct ToolLabel: View {
+private struct ToolIcon: View {
     let symbol: String
-    let title: String
 
     var body: some View {
-        VStack(spacing: 3) {
-            Image(systemName: symbol)
-                .font(.system(size: 15))
-                .frame(height: 18)
-            Text(title)
-                .font(.system(size: 9, weight: .medium))
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .minimumScaleFactor(0.8)
-                .foregroundStyle(.secondary)
-        }
-        .frame(width: 58, height: 44)
-        .contentShape(Rectangle())
+        Image(systemName: symbol)
+            .font(.system(size: 15))
+            .frame(width: 30, height: 30)
+            .contentShape(Rectangle())
+    }
+}
+
+/// Registers a button's frame and label with the panel, which shows the label on hover.
+private struct HoverReport: ViewModifier {
+    let id: String
+    let title: String
+    let detail: String
+    let model: SidePanelModel
+
+    func body(content: Content) -> some View {
+        content
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
+                model.buttons[id] = .init(title: title, detail: detail, frame: frame)
+            }
+            .onChange(of: title + detail, initial: true) {
+                model.buttons[id, default: .init(title: title, detail: detail, frame: .zero)].title = title
+                model.buttons[id]?.detail = detail
+            }
     }
 }
 
 private struct ToolButtonStyle: ButtonStyle {
+    var highlighted = false
+
     func makeBody(configuration: Configuration) -> some View {
-        HoverHighlight(isPressed: configuration.isPressed) { configuration.label }
-    }
-}
-
-private struct HoverHighlight<Content: View>: View {
-    let isPressed: Bool
-    @ViewBuilder let content: Content
-    @State private var hovering = false
-
-    var body: some View {
-        content
+        configuration.label
             .foregroundStyle(.primary)
             .background(
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(Color.primary.opacity(isPressed ? 0.18 : hovering ? 0.09 : 0))
+                    .fill(Color.primary.opacity(configuration.isPressed ? 0.18 : highlighted ? 0.1 : 0))
             )
-            .onHover { hovering = $0 }
     }
 }

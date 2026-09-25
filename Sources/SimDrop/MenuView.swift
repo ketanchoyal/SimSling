@@ -128,7 +128,7 @@ struct MenuView: View {
                 Spacer()
                 Menu {
                     ForEach(store.targets) { device in
-                        Button(device.name) { store.pullClipboard(from: device) }
+                        Button(device.name) { store.pullClipboard(from: .device(device)) }
                     }
                 } label: { Label("Get clipboard", systemImage: "arrow.down.doc") }
                     .fixedSize()
