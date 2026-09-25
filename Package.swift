@@ -2,9 +2,9 @@
 import PackageDescription
 
 let package = Package(
-    name: "SimDrop",
+    name: "SimSling",
     platforms: [.macOS(.v15)],
     targets: [
-        .executableTarget(name: "SimDrop", path: "Sources/SimDrop")
+        .executableTarget(name: "SimSling", path: "Sources/SimSling")
     ]
 )

@@ -115,7 +115,7 @@ enum Transfer {
         let result = try await Shell.run("/usr/bin/rsync", ["-rt", source.path, folder.path + "/"])
         guard result.status == 0 else {
             let message = String(decoding: result.stderr, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            throw SimDropError(message.isEmpty ? "rsync failed (\(result.status))" : message)
+            throw SimSlingError(message.isEmpty ? "rsync failed (\(result.status))" : message)
         }
     }
 }

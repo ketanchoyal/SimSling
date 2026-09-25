@@ -3,7 +3,7 @@ import Observation
 
 @MainActor
 @Observable
-final class SimDropStore {
+final class SimSlingStore {
     enum DestinationMode: String, CaseIterable, Identifiable {
         case auto = "Auto", files = "Files", media = "Photos", app = "App"
         var id: String { rawValue }
@@ -108,7 +108,7 @@ final class SimDropStore {
             case .files: destination = .files
             case .media: destination = .media
             case .app:
-                guard let bundleID = store.appBundleID else { throw SimDropError("Pick an app first") }
+                guard let bundleID = store.appBundleID else { throw SimSlingError("Pick an app first") }
                 destination = .appDocuments(bundleID: bundleID)
             }
             let openFiles = store.openFilesAfterCopy
@@ -184,7 +184,7 @@ final class SimDropStore {
 
     // MARK: Helpers
 
-    private func perform(on target: Target, _ work: @escaping @MainActor (SimDropStore, [SimDevice]) async throws -> Bool) {
+    private func perform(on target: Target, _ work: @escaping @MainActor (SimSlingStore, [SimDevice]) async throws -> Bool) {
         Task {
             busy = true
             defer { busy = false }
@@ -206,22 +206,22 @@ final class SimDropStore {
     private func resolve(_ target: Target) throws -> [SimDevice] {
         switch target {
         case .checked:
-            guard !targets.isEmpty else { throw SimDropError("No booted simulator selected") }
+            guard !targets.isEmpty else { throw SimSlingError("No booted simulator selected") }
             return targets
         case .device(let device):
             guard let match = devices.first(where: { $0.udid == device.udid }) else {
-                throw SimDropError("\(device.name) is no longer booted")
+                throw SimSlingError("\(device.name) is no longer booted")
             }
             return [match]
         case .window(let title):
             guard let title else {
-                throw SimDropError("Can't read this simulator window's name. Allow SimDrop in System Settings › Privacy & Security › Screen Recording.")
+                throw SimSlingError("Can't read this simulator window's name. Allow SimSling in System Settings › Privacy & Security › Screen Recording.")
             }
             let matches = devices.filter { $0.name == title }
             switch matches.count {
             case 1: return matches
-            case 0: throw SimDropError("No booted simulator named \(title)")
-            default: throw SimDropError("More than one booted simulator is named \(title). Rename one so SimDrop can tell them apart.")
+            case 0: throw SimSlingError("No booted simulator named \(title)")
+            default: throw SimSlingError("More than one booted simulator is named \(title). Rename one so SimSling can tell them apart.")
             }
         }
     }

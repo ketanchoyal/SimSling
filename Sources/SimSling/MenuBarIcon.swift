@@ -1,6 +1,6 @@
 import AppKit
 
-/// The SimDrop logo (a phone with a drop falling onto its screen) as an 18pt template image,
+/// The SimSling logo (a phone with a drop falling onto its screen) as an 18pt template image,
 /// so macOS tints it for light and dark menu bars.
 enum MenuBarIcon {
     static let image: NSImage = {
@@ -50,7 +50,7 @@ enum MenuBarIcon {
             return true
         }
         image.isTemplate = true
-        image.accessibilityDescription = "SimDrop"
+        image.accessibilityDescription = "SimSling"
         return image
     }()
 }

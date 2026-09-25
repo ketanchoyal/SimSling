@@ -15,7 +15,7 @@ struct SimApp: Identifiable, Hashable, Sendable {
     var id: String { bundleID }
 }
 
-struct SimDropError: LocalizedError, Sendable {
+struct SimSlingError: LocalizedError, Sendable {
     let message: String
     init(_ message: String) { self.message = message }
     var errorDescription: String? { message }
@@ -81,7 +81,7 @@ enum Simctl {
         let result = try await Shell.run("/usr/bin/xcrun", ["simctl"] + arguments, stdin: stdin)
         guard result.status == 0 else {
             let message = String(decoding: result.stderr, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            throw SimDropError(message.isEmpty ? "simctl \(arguments.first ?? "") failed (\(result.status))" : message)
+            throw SimSlingError(message.isEmpty ? "simctl \(arguments.first ?? "") failed (\(result.status))" : message)
         }
         return result.stdout
     }
@@ -113,7 +113,7 @@ enum Simctl {
     static func userApps(on udid: String) async throws -> [SimApp] {
         let data = try await run(["listapps", udid])
         guard let plist = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: [String: Any]] else {
-            throw SimDropError("Couldn't parse app list")
+            throw SimSlingError("Couldn't parse app list")
         }
         return plist.compactMap { bundleID, info in
             guard info["ApplicationType"] as? String == "User" else { return nil }
@@ -133,7 +133,7 @@ enum Simctl {
                 return URL(fileURLWithPath: columns[1]).appendingPathComponent("File Provider Storage", isDirectory: true)
             }
         }
-        throw SimDropError("Files app storage not found on this simulator")
+        throw SimSlingError("Files app storage not found on this simulator")
     }
 
     static func appDocuments(bundleID: String, on udid: String) async throws -> URL {

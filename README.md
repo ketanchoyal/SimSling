@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="Assets/logo.png" width="160" alt="SimDrop logo">
+  <img src="Assets/logo.png" width="160" alt="SimSling logo">
 </p>
 
-<h1 align="center">SimDrop</h1>
+<h1 align="center">SimSling</h1>
 
 <p align="center">
   Drop files into iOS simulators again.<br>
@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="Assets/screenshot.png" width="520" alt="SimDrop toolbar docked beside an iPhone simulator">
+  <img src="Assets/screenshot.png" width="520" alt="SimSling toolbar docked beside an iPhone simulator">
 </p>
 
 ## Why
@@ -20,7 +20,7 @@ drag and drop is ignored, there's no "share with simulator" in Finder, and Finde
 simulator's storage can land as zero-byte files
 ([developer.apple.com/forums/thread/846994](https://developer.apple.com/forums/thread/846994)).
 
-SimDrop writes straight into the Files app's **On My iPhone** storage with `rsync`, and uses
+SimSling writes straight into the Files app's **On My iPhone** storage with `rsync`, and uses
 `simctl` for everything else.
 
 ## Features
@@ -54,46 +54,46 @@ booted simulator. The ⋯ menu turns the floating toolbar on or off.
 
 ### Download
 
-Grab **SimDrop-x.y.z.zip** from the [latest release](https://github.com/ketanchoyal/SimDrop/releases/latest),
-unzip it and move **SimDrop.app** to Applications. It's a universal build (Apple Silicon and Intel)
+Grab **SimSling-x.y.z.zip** from the [latest release](https://github.com/ketanchoyal/SimSling/releases/latest),
+unzip it and move **SimSling.app** to Applications. It's a universal build (Apple Silicon and Intel)
 for macOS 15 or later, and needs Xcode installed for `xcrun simctl`.
 
-SimDrop is ad-hoc signed and not notarized, so macOS blocks the first launch. Either open it once
+SimSling is ad-hoc signed and not notarized, so macOS blocks the first launch. Either open it once
 and then click **Open Anyway** in **System Settings › Privacy & Security**, or run:
 
 ```sh
-xattr -dr com.apple.quarantine /Applications/SimDrop.app
+xattr -dr com.apple.quarantine /Applications/SimSling.app
 ```
 
 ### Build from source
 
 ```sh
-git clone https://github.com/ketanchoyal/SimDrop.git
-cd SimDrop
-./scripts/build-app.sh            # -> build/SimDrop.app
-cp -R build/SimDrop.app /Applications/
-open /Applications/SimDrop.app
+git clone https://github.com/ketanchoyal/SimSling.git
+cd SimSling
+./scripts/build-app.sh            # -> build/SimSling.app
+cp -R build/SimSling.app /Applications/
+open /Applications/SimSling.app
 ```
 
 To publish a release: bump `VERSION`, then run `./scripts/release.sh`.
 
 The floating toolbar reads simulator window titles to know which device each window is. If macOS
-hides them, allow SimDrop under **System Settings › Privacy & Security › Screen Recording**.
+hides them, allow SimSling under **System Settings › Privacy & Security › Screen Recording**.
 
 ## CLI
 
 The app binary doubles as a CLI:
 
 ```sh
-ln -s /Applications/SimDrop.app/Contents/MacOS/SimDrop /usr/local/bin/simdrop
+ln -s /Applications/SimSling.app/Contents/MacOS/SimSling /usr/local/bin/simsling
 
-simdrop list
-simdrop send backup.dat photos/*.heic          # all booted sims, auto-routed
-simdrop send -d "iPhone 17 Pro" --files data/
-simdrop send --app com.example.myapp seed.sqlite
-simdrop clip-to-sim
-simdrop clip-from-sim
-simdrop open "myapp://settings"
+simsling list
+simsling send backup.dat photos/*.heic          # all booted sims, auto-routed
+simsling send -d "iPhone 17 Pro" --files data/
+simsling send --app com.example.myapp seed.sqlite
+simsling clip-to-sim
+simsling clip-from-sim
+simsling open "myapp://settings"
 ```
 
 ## License

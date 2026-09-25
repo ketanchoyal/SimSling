@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct MenuView: View {
-    @Bindable var store: SimDropStore
+    @Bindable var store: SimSlingStore
     @State private var dropTargeted = false
     @State private var urlText = ""
 
@@ -25,7 +25,7 @@ struct MenuView: View {
 
     private var header: some View {
         HStack {
-            Label { Text("SimDrop") } icon: { Image(nsImage: MenuBarIcon.image) }
+            Label { Text("SimSling") } icon: { Image(nsImage: MenuBarIcon.image) }
                 .font(.headline)
             Spacer()
             if store.busy { ProgressView().controlSize(.small) }
@@ -35,7 +35,7 @@ struct MenuView: View {
             Menu {
                 Toggle("Show Toolbar Beside Simulators", isOn: $store.showSideToolbar)
                 Divider()
-                Button("Quit SimDrop") { NSApp.terminate(nil) }
+                Button("Quit SimSling") { NSApp.terminate(nil) }
             } label: { Image(systemName: "ellipsis.circle") }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
@@ -90,7 +90,7 @@ struct MenuView: View {
     private var destinationSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Picker("Destination", selection: $store.mode) {
-                ForEach(SimDropStore.DestinationMode.allCases) { Text($0.rawValue).tag($0) }
+                ForEach(SimSlingStore.DestinationMode.allCases) { Text($0.rawValue).tag($0) }
             }
             .pickerStyle(.segmented)
             .labelsHidden()

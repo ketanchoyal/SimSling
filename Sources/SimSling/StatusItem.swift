@@ -3,7 +3,7 @@ import SwiftUI
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let store = SimDropStore()
+    private let store = SimSlingStore()
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
     private lazy var sideToolbars = SideToolbarController(store: store)
@@ -50,7 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setIcon(_ symbol: String) {
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "SimDrop")
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "SimSling")
         image?.isTemplate = true
         statusItem.button?.image = image
     }

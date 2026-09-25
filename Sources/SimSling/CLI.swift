@@ -2,7 +2,7 @@ import AppKit
 
 enum CLI {
     static let usage = """
-    usage: simdrop <command> [options]
+    usage: simsling <command> [options]
 
     Commands:
       list                          List booted simulators
@@ -126,7 +126,7 @@ enum CLI {
     }
 
     private static func fail(_ message: String) -> Int32 {
-        printError("simdrop: \(message)")
+        printError("simsling: \(message)")
         return 1
     }
 

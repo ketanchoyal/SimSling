@@ -7,12 +7,12 @@ import SwiftUI
 final class SideToolbarController {
     static let hostBundleIDs: Set<String> = ["com.apple.dt.Devices", "com.apple.iphonesimulator"]
 
-    private let store: SimDropStore
+    private let store: SimSlingStore
     private var panels: [Int: SidePanel] = [:]   // keyed by the simulator's CGWindowID
     private var timer: Timer?
     private var activationObserver: NSObjectProtocol?
 
-    init(store: SimDropStore) {
+    init(store: SimSlingStore) {
         self.store = store
     }
 
@@ -168,7 +168,7 @@ final class SidePanelModel {
     @ObservationIgnored var dismissHover: (() -> Void)?
 }
 
-/// Hosting view that tracks the pointer even while SimDrop is inactive. SwiftUI's `onHover` only
+/// Hosting view that tracks the pointer even while SimSling is inactive. SwiftUI's `onHover` only
 /// fires for the active app, and these panels never activate the app.
 final class ToolbarHostingView: NSHostingView<SideToolbarView> {
     var onPointer: ((CGPoint?) -> Void)?
@@ -207,7 +207,7 @@ final class ToolbarHostingView: NSHostingView<SideToolbarView> {
 final class SidePanel: NSPanel {
     let model = SidePanelModel()
 
-    init(store: SimDropStore) {
+    init(store: SimSlingStore) {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isFloatingPanel = false
         level = .normal
@@ -310,7 +310,7 @@ struct HoverLabel: View {
 }
 
 struct SideToolbarView: View {
-    @Bindable var store: SimDropStore
+    @Bindable var store: SimSlingStore
     let model: SidePanelModel
 
     @State private var dropTargeted = false
@@ -319,7 +319,7 @@ struct SideToolbarView: View {
     @State private var badge: Bool?   // true = success, false = failure, nil = hidden
 
     /// Every action from this toolbar targets only the simulator it sits beside.
-    private var target: SimDropStore.Target { .window(title: model.windowTitle) }
+    private var target: SimSlingStore.Target { .window(title: model.windowTitle) }
     private var deviceLabel: String { model.windowTitle ?? "this simulator" }
 
     var body: some View {
@@ -368,7 +368,7 @@ struct SideToolbarView: View {
     private var destinationMenu: some View {
         Menu {
             Picker("Destination", selection: $store.mode) {
-                ForEach(SimDropStore.DestinationMode.allCases) { mode in
+                ForEach(SimSlingStore.DestinationMode.allCases) { mode in
                     Label(mode.rawValue, systemImage: symbol(for: mode)).tag(mode)
                 }
             }
@@ -443,7 +443,7 @@ struct SideToolbarView: View {
             .transition(.opacity)
     }
 
-    private func symbol(for mode: SimDropStore.DestinationMode) -> String {
+    private func symbol(for mode: SimSlingStore.DestinationMode) -> String {
         switch mode {
         case .auto: "wand.and.stars"
         case .files: "folder.badge.plus"
