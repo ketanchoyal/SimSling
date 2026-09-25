@@ -37,14 +37,8 @@ what it does. Everything on a toolbar acts on **that simulator only**.
 | Paste Mac Clipboard | Put the Mac clipboard onto the simulator |
 | Copy Sim Clipboard | Bring the simulator's clipboard to the Mac |
 | Open URL | Open a URL or deep link |
-| Screenshot | Capture the screen; a thumbnail floats in the simulator's corner (see below) |
+| Screenshot | Capture the screen; a thumbnail floats in the simulator's corner ([see below](#screenshots)) |
 | Show in Finder | Reveal the simulator's Files storage |
-
-**Screenshots, the Simulator.app way.** After a screenshot, a thumbnail floats in the simulator's
-bottom-right corner, like it did before Device Hub. Drag it into any app (Slack, Figma, Xcode, a
-Finder window…) and it's handed over, with no copy left behind. Leave it alone and it saves to the
-Desktop after 5 seconds (hovering keeps it around). Click it to save and open it; right-click for
-Save, Copy or Delete.
 
 **Menu bar app.** Drop files on the menu bar icon or in its panel to send them to every checked
 booted simulator. The ⋯ menu turns the floating toolbar on or off.
@@ -56,6 +50,26 @@ booted simulator. The ⋯ menu turns the floating toolbar on or off.
 | Images, videos, `.vcf` | Photos / Contacts (`simctl addmedia`) |
 | `.app` bundle | Installed (`simctl install`) |
 | Anything else, including folders | Files › On My iPhone |
+
+## Screenshots
+
+Screenshots work the way they did in Simulator.app before Device Hub. Click the camera on a
+simulator's toolbar: the screen flashes, and a thumbnail floats in the simulator's bottom-right
+corner. Take a few and they stack up.
+
+<p align="center">
+  <img src="Assets/screenshot-thumbnail.png" width="520" alt="Dragging a screenshot thumbnail from the simulator into a folder">
+</p>
+
+| Do this with the thumbnail | What happens |
+| --- | --- |
+| Drag it into any app (Slack, Figma, Xcode, a Finder folder…) | The app gets the image; no copy is left on your Mac |
+| Leave it alone | Saved to the Desktop after 5 seconds (hovering keeps it around) |
+| Click it | Saved to the Desktop and opened |
+| Right-click it | Save to Desktop, Copy, or Delete |
+
+Files use Simulator.app's naming, e.g. `Simulator Screenshot - iPhone 17 Pro - 2026-09-25 at 14.30.05.png`.
+From the terminal, `simsling screenshot` does the same (to the Desktop, or a path you give it).
 
 ## Install
 
