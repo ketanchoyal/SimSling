@@ -295,7 +295,7 @@ struct HoverLabel: View {
     let detail: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
+        VStack(alignment: .leading, spacing: 3) {
             Text(title).font(.system(size: 12, weight: .semibold))
             Text(detail).font(.system(size: 10.5)).opacity(0.75)
                 .fixedSize(horizontal: false, vertical: true)
@@ -303,7 +303,7 @@ struct HoverLabel: View {
         .frame(maxWidth: 240, alignment: .leading)
         .foregroundStyle(.white)
         .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.vertical, 9)
         .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color(white: 0.12).opacity(0.94)))
         .fixedSize(horizontal: true, vertical: true)
     }
