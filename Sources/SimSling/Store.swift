@@ -1,5 +1,8 @@
 import AppKit
 import Observation
+import os
+
+let appLog = Logger(subsystem: "com.ketanchoyal.SimSling", category: "app")
 
 @MainActor
 @Observable
@@ -95,8 +98,9 @@ final class SimSlingStore {
         case checked
         /// One specific device.
         case device(SimDevice)
-        /// The simulator whose window has this title (Device Hub titles windows with the device name).
-        case window(title: String?)
+        /// The simulator shown in a Device Hub window, identified by its title (device name, and the
+        /// runtime when known). `nil` when the title couldn't be read.
+        case window(name: String?, runtime: String?)
     }
 
     func send(_ urls: [URL], to target: Target = .checked) {
@@ -202,7 +206,7 @@ final class SimSlingStore {
             defer { busy = false }
             // Resolve against a fresh device list so a just-booted simulator is found.
             await refresh()
-            let window: String? = if case .window(let title) = target { title } else { nil }
+            let window: String? = if case .window(let name, _) = target { name } else { nil }
             do {
                 let targets = try resolve(target)
                 finish(ok: try await work(self, targets), udids: Set(targets.map(\.udid)), window: window)
@@ -225,15 +229,19 @@ final class SimSlingStore {
                 throw SimSlingError("\(device.name) is no longer booted")
             }
             return [match]
-        case .window(let title):
-            guard let title else {
-                throw SimSlingError("Can't read this simulator window's name. Allow SimSling in System Settings › Privacy & Security › Screen Recording.")
+        case .window(let name, let runtime):
+            guard let name else {
+                // Nothing to tell apart with a single booted simulator.
+                if devices.count == 1 { return devices }
+                WindowIdentity.requestAccessibility(force: true)
+                throw SimSlingError("SimSling can't tell which simulator this window is. Allow SimSling in System Settings › Privacy & Security › Accessibility.")
             }
-            let matches = devices.filter { $0.name == title }
+            var matches = devices.filter { $0.name == name }
+            if matches.count > 1, let runtime { matches = matches.filter { $0.runtime == runtime } }
             switch matches.count {
             case 1: return matches
-            case 0: throw SimSlingError("No booted simulator named \(title)")
-            default: throw SimSlingError("More than one booted simulator is named \(title). Rename one so SimSling can tell them apart.")
+            case 0: throw SimSlingError("No booted simulator named \(name)")
+            default: throw SimSlingError("More than one booted simulator is named \(name). Rename one so SimSling can tell them apart.")
             }
         }
     }
@@ -244,7 +252,10 @@ final class SimSlingStore {
     }
 
     private func append(_ text: String) { push(LogEntry(isError: false, text: text)) }
-    private func append(error text: String) { push(LogEntry(isError: true, text: text)) }
+    private func append(error text: String) {
+        appLog.error("\(text, privacy: .public)")
+        push(LogEntry(isError: true, text: text))
+    }
     private func push(_ entry: LogEntry) {
         log.insert(entry, at: 0)
         if log.count > 50 { log.removeLast(log.count - 50) }

@@ -84,8 +84,11 @@ open /Applications/SimSling.app
 
 To publish a release: bump `VERSION`, then run `./scripts/release.sh`.
 
-The floating toolbar reads simulator window titles to know which device each window is. If macOS
-hides them, allow SimSling under **System Settings › Privacy & Security › Screen Recording**.
+**Accessibility permission.** With more than one simulator booted, the floating toolbar reads each
+simulator window's title (e.g. "iPhone 17 Pro – iOS 27.0") through Accessibility to know which
+device it belongs to. SimSling asks on first launch; you can also allow it under
+**System Settings › Privacy & Security › Accessibility**. Because release builds are ad-hoc signed,
+macOS may ask again after an update.
 
 ## CLI
 

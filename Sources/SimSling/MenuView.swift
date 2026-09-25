@@ -8,6 +8,7 @@ struct MenuView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
+            if needsAccessibility { accessibilityNotice }
             devicesSection
             dropZone
             destinationSection
@@ -41,6 +42,30 @@ struct MenuView: View {
                 .menuIndicator(.hidden)
                 .fixedSize()
         }
+    }
+
+    /// The side toolbars need Accessibility to tell simulator windows apart when several are booted.
+    private var needsAccessibility: Bool {
+        store.showSideToolbar && store.devices.count > 1 && !WindowIdentity.accessibilityTrusted
+    }
+
+    private var accessibilityNotice: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("Allow Accessibility", systemImage: "hand.raised.fill")
+                .font(.callout.weight(.semibold))
+            Text("The toolbars beside each simulator need it to know which simulator they belong to.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Open Accessibility Settings") {
+                WindowIdentity.requestAccessibility(force: true)
+                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+            }
+            .controlSize(.small)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.15)))
     }
 
     private var devicesSection: some View {

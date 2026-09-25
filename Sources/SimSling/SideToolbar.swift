@@ -75,7 +75,7 @@ final class SideToolbarController {
 
     private struct HostWindow {
         let number: Int
-        let title: String?
+        let identity: SimWindowIdentity?
         let frame: CGRect   // CoreGraphics coordinates: top-left origin of the primary display
     }
 
@@ -95,9 +95,9 @@ final class SideToolbarController {
             else { continue }
             // Window titles need Screen Recording permission. With a title, only attach to windows that
             // are actually simulators; without one, attach to every large host window.
-            let title = (window[kCGWindowName as String] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            if let title, !deviceNames.isEmpty, !deviceNames.contains(title) { continue }
-            hosts.append(HostWindow(number: number, title: title, frame: frame))
+            let identity = identity(ofWindow: number, pid: pid, frame: frame, listTitle: window[kCGWindowName as String] as? String)
+            if let identity, !deviceNames.isEmpty, !deviceNames.contains(identity.name) { continue }
+            hosts.append(HostWindow(number: number, identity: identity, frame: frame))
         }
 
         var needsDeviceRefresh = false
@@ -112,7 +112,8 @@ final class SideToolbarController {
                 panels[host.number] = panel
                 needsDeviceRefresh = true
             }
-            panel.model.windowTitle = host.title
+            panel.model.windowTitle = host.identity?.name
+            panel.model.windowRuntime = host.identity?.runtime
             position(panel, beside: host.frame)
 
             // Keep the panel directly above its simulator: in front of it, but behind any window
@@ -124,6 +125,41 @@ final class SideToolbarController {
         }
         hideMissingPanels(now: now)
         if needsDeviceRefresh { Task { await store.refresh() } }
+    }
+
+    /// Window identities by window ID; a window's title doesn't change, so look it up once.
+    private var identities: [Int: SimWindowIdentity] = [:]
+    private var lastLookup: [Int: Date] = [:]
+
+    /// Works out which simulator a window shows: from the window list title when macOS provides
+    /// it (needs Screen Recording), otherwise from its Accessibility title.
+    private func identity(ofWindow number: Int, pid: pid_t, frame: CGRect, listTitle: String?) -> SimWindowIdentity? {
+        if let known = identities[number] { return known }
+        if let listTitle, !listTitle.isEmpty {
+            // Prefer the Accessibility title when available: it also names the runtime.
+            let identity = accessibilityIdentity(number: number, pid: pid, frame: frame) ?? SimWindowIdentity(title: listTitle)
+            identities[number] = identity
+            return identity
+        }
+        guard WindowIdentity.accessibilityTrusted else {
+            // Only one booted simulator means there's nothing to tell apart.
+            if store.devices.count > 1 { WindowIdentity.requestAccessibility() }
+            return nil
+        }
+        let identity = accessibilityIdentity(number: number, pid: pid, frame: frame)
+        if let identity { identities[number] = identity }
+        return identity
+    }
+
+    private func accessibilityIdentity(number: Int, pid: pid_t, frame: CGRect) -> SimWindowIdentity? {
+        guard WindowIdentity.accessibilityTrusted else { return nil }
+        // Throttle retries for windows whose title can't be matched yet (e.g. mid-animation).
+        if let last = lastLookup[number], Date().timeIntervalSince(last) < 1 { return nil }
+        lastLookup[number] = Date()
+        guard let title = WindowIdentity.accessibilityTitle(pid: pid, frame: frame) else { return nil }
+        let identity = SimWindowIdentity(title: title)
+        appLog.info("Window \(number) is \(identity.name, privacy: .public) (\(identity.runtime ?? "runtime unknown", privacy: .public))")
+        return identity
     }
 
     private var hostCache: [pid_t: Bool] = [:]
@@ -149,6 +185,8 @@ final class SideToolbarController {
             if missingFor > discardAfter {
                 panels[number] = nil
                 lastSeen[number] = nil
+                identities[number] = nil
+                lastLookup[number] = nil
             }
         }
     }
@@ -188,6 +226,8 @@ final class SideToolbarController {
 final class SidePanelModel {
     /// Title of the simulator window this panel is attached to (its device name), if readable.
     var windowTitle: String?
+    /// Runtime of that simulator ("iOS 27.0") when the title includes it.
+    var windowRuntime: String?
 
     /// ID of the button under the pointer, drives the hover highlight.
     var hovered: String?
@@ -416,7 +456,7 @@ struct SideToolbarView: View {
     @State private var badge: Bool?   // true = success, false = failure, nil = hidden
 
     /// Every action from this toolbar targets only the simulator it sits beside.
-    private var target: SimSlingStore.Target { .window(title: model.windowTitle) }
+    private var target: SimSlingStore.Target { .window(name: model.windowTitle, runtime: model.windowRuntime) }
     private var deviceLabel: String { model.windowTitle ?? "this simulator" }
 
     var body: some View {
